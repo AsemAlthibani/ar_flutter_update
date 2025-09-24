@@ -7,12 +7,12 @@ import 'package:flutter/material.dart';
 // DO NOT REMOVE OR MODIFY THE CODE ABOVE!
 
 //AR Flutter Plugin
-import 'package:ar_flutter_plugin_flutterflow/ar_flutter_plugin.dart';
-import 'package:ar_flutter_plugin_flutterflow/managers/ar_location_manager.dart';
-import 'package:ar_flutter_plugin_flutterflow/managers/ar_session_manager.dart';
-import 'package:ar_flutter_plugin_flutterflow/managers/ar_object_manager.dart';
-import 'package:ar_flutter_plugin_flutterflow/managers/ar_anchor_manager.dart';
-import 'package:ar_flutter_plugin_flutterflow/datatypes/config_planedetection.dart';
+import 'package:ar_flutter_update/ar_flutter_plugin.dart';
+import 'package:ar_flutter_update/managers/ar_location_manager.dart';
+import 'package:ar_flutter_update/managers/ar_session_manager.dart';
+import 'package:ar_flutter_update/managers/ar_object_manager.dart';
+import 'package:ar_flutter_update/managers/ar_anchor_manager.dart';
+import 'package:ar_flutter_update/datatypes/config_planedetection.dart';
 
 class DebugOptions extends StatefulWidget {
   const DebugOptions({

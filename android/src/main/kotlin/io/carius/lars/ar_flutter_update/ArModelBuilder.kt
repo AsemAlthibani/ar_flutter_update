@@ -1,4 +1,4 @@
-package io.carius.lars.ar_flutter_plugin_flutterflow
+package io.carius.lars.ar_flutter_update
 
 import android.content.Context
 import com.google.ar.sceneform.Node
@@ -12,7 +12,7 @@ import com.google.ar.core.*
 import com.google.ar.sceneform.rendering.*
 import com.google.ar.sceneform.ux.*
 
-import io.carius.lars.ar_flutter_plugin_flutterflow.Serialization.*
+import io.carius.lars.ar_flutter_update.Serialization.*
 
 import io.flutter.FlutterInjector
 import io.flutter.embedding.engine.loader.FlutterLoader

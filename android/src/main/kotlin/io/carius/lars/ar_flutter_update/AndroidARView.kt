@@ -1,4 +1,4 @@
-package io.carius.lars.ar_flutter_plugin_flutterflow
+package io.carius.lars.ar_flutter_update
 
 import android.R
 import android.animation.ObjectAnimator
@@ -29,10 +29,10 @@ import com.google.ar.sceneform.collision.Box
 import com.google.ar.sceneform.math.Vector3
 import com.google.ar.sceneform.rendering.*
 import com.google.ar.sceneform.ux.*
-import io.carius.lars.ar_flutter_plugin_flutterflow.Serialization.deserializeMatrix4s
-import io.carius.lars.ar_flutter_plugin_flutterflow.Serialization.serializeAnchor
-import io.carius.lars.ar_flutter_plugin_flutterflow.Serialization.serializeHitResult
-import io.carius.lars.ar_flutter_plugin_flutterflow.Serialization.serializePoses
+import io.carius.lars.ar_flutter_update.Serialization.deserializeMatrix4s
+import io.carius.lars.ar_flutter_update.Serialization.serializeAnchor
+import io.carius.lars.ar_flutter_update.Serialization.serializeHitResult
+import io.carius.lars.ar_flutter_update.Serialization.serializePoses
 import io.flutter.FlutterInjector
 import io.flutter.embedding.engine.loader.FlutterLoader
 import io.flutter.plugin.common.BinaryMessenger
@@ -235,7 +235,7 @@ internal class AndroidARView(
                                         val view = activity.findViewById(R.id.content) as ViewGroup
                                         if (!::animatedGuide2.isInitialized || animatedGuide2.parent == null) {
                                             animatedGuide2 = activity.layoutInflater.inflate(
-                                                io.carius.lars.ar_flutter_plugin_flutterflow.R.layout.my_sceneform_plane_layout,
+                                                io.carius.lars.ar_flutter_update.R.layout.my_sceneform_plane_layout,
                                                 null
                                             )
                                             view.addView(animatedGuide2)
@@ -657,12 +657,12 @@ internal class AndroidARView(
             showAnimatedGuide = true
             val view = activity.findViewById(R.id.content) as ViewGroup
             animatedGuide = activity.layoutInflater.inflate(
-                io.carius.lars.ar_flutter_plugin_flutterflow.R.layout.sceneform_hand_layout,
+                io.carius.lars.ar_flutter_update.R.layout.sceneform_hand_layout,
                 null
             )
             view.addView(animatedGuide)
             val hand =
-                animatedGuide.findViewById<View>(io.carius.lars.ar_flutter_plugin_flutterflow.R.id.hand_motion_view)
+                animatedGuide.findViewById<View>(io.carius.lars.ar_flutter_update.R.id.hand_motion_view)
             animatedGuide.doOnPreDraw {
                 val travel = animatedGuide.width * 0.28f
                 val animator = ObjectAnimator.ofFloat(hand, View.TRANSLATION_X, -travel, travel).apply {
@@ -671,7 +671,7 @@ internal class AndroidARView(
                     repeatMode = ValueAnimator.REVERSE
                     interpolator = AccelerateDecelerateInterpolator()
                 }
-                hand.setTag(io.carius.lars.ar_flutter_plugin_flutterflow.R.id.hand_motion_view, animator)
+                hand.setTag(io.carius.lars.ar_flutter_update.R.id.hand_motion_view, animator)
                 animator.start()
             }
         }
@@ -1160,16 +1160,16 @@ internal class AndroidARView(
         if (viewToRemove == null) return
 
         (viewToRemove.getTag(
-            io.carius.lars.ar_flutter_plugin_flutterflow.R.id.hand_motion_view
+            io.carius.lars.ar_flutter_update.R.id.hand_motion_view
         ) as? ObjectAnimator)?.cancel()
 
         viewToRemove.findViewById<View>(
-            io.carius.lars.ar_flutter_plugin_flutterflow.R.id.hand_motion_view
+            io.carius.lars.ar_flutter_update.R.id.hand_motion_view
         )?.let { hand ->
             hand.animate().cancel()
             hand.clearAnimation()
             (hand.getTag(
-                io.carius.lars.ar_flutter_plugin_flutterflow.R.id.hand_motion_view
+                io.carius.lars.ar_flutter_update.R.id.hand_motion_view
             ) as? ObjectAnimator)?.cancel()
         }
 

@@ -7,17 +7,17 @@ import 'package:flutter/material.dart';
 // DO NOT REMOVE OR MODIFY THE CODE ABOVE!
 
 //AR Flutter Plugin
-import 'package:ar_flutter_plugin_flutterflow/managers/ar_location_manager.dart';
-import 'package:ar_flutter_plugin_flutterflow/managers/ar_session_manager.dart';
-import 'package:ar_flutter_plugin_flutterflow/managers/ar_object_manager.dart';
-import 'package:ar_flutter_plugin_flutterflow/managers/ar_anchor_manager.dart';
-import 'package:ar_flutter_plugin_flutterflow/models/ar_anchor.dart';
-import 'package:ar_flutter_plugin_flutterflow/ar_flutter_plugin.dart';
-import 'package:ar_flutter_plugin_flutterflow/datatypes/config_planedetection.dart';
-import 'package:ar_flutter_plugin_flutterflow/datatypes/node_types.dart';
-import 'package:ar_flutter_plugin_flutterflow/datatypes/hittest_result_types.dart';
-import 'package:ar_flutter_plugin_flutterflow/models/ar_node.dart';
-import 'package:ar_flutter_plugin_flutterflow/models/ar_hittest_result.dart';
+import 'package:ar_flutter_update/managers/ar_location_manager.dart';
+import 'package:ar_flutter_update/managers/ar_session_manager.dart';
+import 'package:ar_flutter_update/managers/ar_object_manager.dart';
+import 'package:ar_flutter_update/managers/ar_anchor_manager.dart';
+import 'package:ar_flutter_update/models/ar_anchor.dart';
+import 'package:ar_flutter_update/ar_flutter_plugin.dart';
+import 'package:ar_flutter_update/datatypes/config_planedetection.dart';
+import 'package:ar_flutter_update/datatypes/node_types.dart';
+import 'package:ar_flutter_update/datatypes/hittest_result_types.dart';
+import 'package:ar_flutter_update/models/ar_node.dart';
+import 'package:ar_flutter_update/models/ar_hittest_result.dart';
 
 //Other custom imports
 import 'package:vector_math/vector_math_64.dart';

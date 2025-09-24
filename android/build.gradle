@@ -1,4 +1,4 @@
-group 'io.carius.lars.ar_flutter_plugin_flutterflow'
+group 'io.carius.lars.ar_flutter_update'
 version '1.0-SNAPSHOT'
 
 buildscript {
@@ -26,7 +26,7 @@ apply plugin: 'kotlin-android'
 android {
     compileSdkVersion 34
 
-    namespace "io.carius.lars.ar_flutter_plugin_flutterflow"
+    namespace "io.carius.lars.ar_flutter_update"
 
     defaultConfig {
         minSdkVersion 21

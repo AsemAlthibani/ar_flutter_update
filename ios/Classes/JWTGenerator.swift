@@ -1,6 +1,6 @@
 //
 //  JWTGenerator.swift
-//  ar_flutter_plugin_flutterflow
+//  ar_flutter_update
 //
 //  Created by Hugo Lefèvre on 07.02.25.
 //
