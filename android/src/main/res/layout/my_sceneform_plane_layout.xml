@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/sceneform_hand_layout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clipChildren="false"
+    android:background="@android:color/transparent">
+
+    <!-- حركة اليد التوضيحية -->
+
+    <com.google.ar.sceneform.ux.HandMotionView
+        android:id="@+id/sceneform_hand_image"
+        android:layout_width="200dp"
+        android:layout_height="200dp"
+        android:layout_gravity="center"
+        android:src="@drawable/rotation"
+        android:scaleType="fitCenter"
+        android:alpha="0.8" />
+    <!-- النص التوجيهي أسفل الشاشة -->
+    <TextView
+        android:id="@+id/instruction_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="150dp"
+        android:gravity="center"
+        android:text="🔄 حرك الكاميرا ببطء حول العنصر 📸 حاول تغطية الزوايا المختلفة ومن بعدها اعمل حفظ"
+        android:textColor="#FFFFFF"
+        android:textStyle="bold"
+        android:textSize="18sp"
+        android:padding="16dp"
+        android:elevation="6dp"
+        android:background="@android:color/transparent"
+        />
+</FrameLayout>

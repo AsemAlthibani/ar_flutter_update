@@ -1,0 +1,96 @@
+group 'io.carius.lars.ar_flutter_plugin_flutterflow'
+version '1.0-SNAPSHOT'
+
+buildscript {
+    ext.kotlin_version = '1.9.22'
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.3.0'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+android {
+    compileSdkVersion 34
+
+    namespace "io.carius.lars.ar_flutter_plugin_flutterflow"
+
+    defaultConfig {
+        minSdkVersion 21
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+}
+
+/**
+ * اجبار استخدام نسخة ARCore الحديثة ومنع أي نسخة أقدم تأتي ترانزيتيف
+ */
+configurations.all {
+    resolutionStrategy {
+        force 'com.google.ar:core:1.31.0'
+    }
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+
+    // Sceneform Maintained
+    implementation("com.gorisse.thomas.sceneform:sceneform:1.23.0") {
+        // في حال جلبت نسخة ARCore ترانزيتيف، نستثنيها
+        exclude group: 'com.google.ar', module: 'core'
+    }
+
+    // ثبّت ARCore المطلوب (يتوافق مع Sceneform 1.23.0)
+    implementation "com.google.ar:core:1.31.0"
+
+    // ثبّت الإصدارات بدل الـ +
+    implementation 'com.google.android.gms:play-services-auth:20.7.0'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+}
+
+afterEvaluate {
+    def containsEmbeddingDependencies = false
+    for (def configuration : configurations.all) {
+        for (def dependency : configuration.dependencies) {
+            if (dependency.group == 'io.flutter' &&
+                    dependency.name.startsWith('flutter_embedding') &&
+                    dependency.isTransitive()) {
+                containsEmbeddingDependencies = true
+                break
+            }
+        }
+    }
+    if (!containsEmbeddingDependencies) {
+        android {
+            dependencies {
+                def lifecycle_version = "1.1.1"
+                compileOnly "android.arch.lifecycle:runtime:$lifecycle_version"
+                compileOnly "android.arch.lifecycle:common:$lifecycle_version"
+                compileOnly "android.arch.lifecycle:common-java8:$lifecycle_version"
+            }
+        }
+    }
+}
