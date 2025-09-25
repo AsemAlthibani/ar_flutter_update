@@ -596,40 +596,73 @@ func session(_ session: ARSession, didUpdate frame: ARFrame) {
                         promise(.success(false))
                     }
                     break
-                case 1: // GLB Model from the web
-                    // Add object to scene
-                    self.modelBuilder.makeNodeFromWebGlb(name: dict_node["name"] as! String, modelURL: dict_node["uri"] as! String, transformation: dict_node["transformation"] as? Array<NSNumber>,targetSize: dict_node["targetSize"] as? Float )
-                    .sink(receiveCompletion: {
-                                    completion in print("Async Model Downloading Task completed: ", completion)
-                    }, receiveValue: { val in
-                        if let node: SCNNode = val {
-                            if let anchorName = dict_anchor?["name"] as? String, let anchorType = dict_anchor?["type"] as? Int {
-                                switch anchorType{
-                                    case 0: //PlaneAnchor
-                                        if let anchor = self.anchorCollection[anchorName]{
-                                            // Attach node to the top-level node of the specified anchor
-                                            self.sceneView.node(for: anchor)?.addChildNode(node)
-                                            promise(.success(true))
-                                        } else {
-                                            promise(.success(false))
-                                        }
-                                    default:
-                                        promise(.success(false))
-                                    }
-                                
-                            } else {
-                                // Attach to top-level node of the scene
-                                self.sceneView.scene.rootNode.addChildNode(node)
-                                promise(.success(true))
-                            }
-                            promise(.success(false))
-                        } else {
-                            DispatchQueue.main.async {self.sessionManagerChannel.invokeMethod("onError", arguments: ["Unable to load renderable \(dict_node["name"] as! String)"])}
-                            promise(.success(false))
-                        }
-                    }).store(in: &self.cancellableCollection)
-                    break
-                case 2: // GLB Model from the app's documents folder
+//                case 1: // GLB Model from the web
+//                    // Add object to scene
+//                    self.modelBuilder.makeNodeFromWebGlb(name: dict_node["name"] as! String, modelURL: dict_node["uri"] as! String, transformation: dict_node["transformation"] as? Array<NSNumber>,targetSize: dict_node["targetSize"] as? Float )
+//                    .sink(receiveCompletion: {
+//                                    completion in print("Async Model Downloading Task completed: ", completion)
+//                    }, receiveValue: { val in
+//                        if let node: SCNNode = val {
+//                            if let anchorName = dict_anchor?["name"] as? String, let anchorType = dict_anchor?["type"] as? Int {
+//                                switch anchorType{
+//                                    case 0: //PlaneAnchor
+//                                        if let anchor = self.anchorCollection[anchorName]{
+//                                            // Attach node to the top-level node of the specified anchor
+//                                            self.sceneView.node(for: anchor)?.addChildNode(node)
+//                                            promise(.success(true))
+//                                        } else {
+//                                            promise(.success(false))
+//                                        }
+//                                    default:
+//                                        promise(.success(false))
+//                                    }
+//
+//                            } else {
+//                                // Attach to top-level node of the scene
+//                                self.sceneView.scene.rootNode.addChildNode(node)
+//                                promise(.success(true))
+//                            }
+//                            promise(.success(false))
+//                        } else {
+//                            DispatchQueue.main.async {self.sessionManagerChannel.invokeMethod("onError", arguments: ["Unable to load renderable \(dict_node["name"] as! String)"])}
+//                            promise(.success(false))
+//                        }
+//                    }).store(in: &self.cancellableCollection)
+//                    break
+                    case 1: // GLB Model from the web (via GlbRenderableLoader)
+                    GlbRenderableLoader.shared
+                    .load(name: dict_node["name"] as! String,
+modelPath: dict_node["uri"] as! String,
+transformation: dict_node["transformation"] as? [NSNumber],
+targetSize: dict_node["targetSize"] as? Float,
+maxRetries: 2)
+.sink(receiveCompletion: { _ in
+// لا شيء
+}, receiveValue: { val in
+if let node = val {
+if let anchorName = dict_anchor?["name"] as? String,
+let anchorType = dict_anchor?["type"] as? Int,
+anchorType == 0,
+let anchor = self.anchorCollection[anchorName] {
+self.sceneView.node(for: anchor)?.addChildNode(node)
+promise(.success(true))
+} else {
+self.sceneView.scene.rootNode.addChildNode(node)
+promise(.success(true))
+}
+promise(.success(false))
+} else {
+DispatchQueue.main.async {
+self.sessionManagerChannel.invokeMethod("onError",
+arguments: ["Unable to load renderable \(dict_node["name"] as! String)"])
+}
+promise(.success(false))
+}
+}).store(in: &self.cancellableCollection)
+break
+
+
+case 2: // GLB Model from the app's documents folder
                     // Get path to given file system asset
                     let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
                     let documentsDirectory = paths[0]

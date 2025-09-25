@@ -26,6 +26,8 @@ class ARAnchorManager {
   /// Callback that is triggered once an anchor has successfully been downloaded from the google cloud anchor API and resolved within the current scene
   AnchorDownloadedHandler? onAnchorDownloaded;
 
+  ValueChanged<bool>? onAutoHostCloudAnchorStarted;
+
   ARAnchorManager(int id, {this.debug = false}) {
     _channel = MethodChannel('aranchors_$id');
     _channel.setMethodCallHandler(_platformCallHandler);
@@ -78,6 +80,13 @@ class ARAnchorManager {
           // Notify callback
           if (autoHostCloudAnchor != null) {
             autoHostCloudAnchor!(currentAnchor);
+          }
+          break;
+        case 'autoHostCloudAnchorStarted':
+          final started = call.arguments as bool;
+          print("AutoHostCloudAnchorStarted: $started");
+          if (onAutoHostCloudAnchorStarted != null) {
+            onAutoHostCloudAnchorStarted!(started);
           }
           break;
         case "onAnchorDownloadSuccess":

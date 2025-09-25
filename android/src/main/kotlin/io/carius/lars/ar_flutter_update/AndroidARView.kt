@@ -17,6 +17,7 @@ import android.view.MotionEvent
 import android.view.PixelCopy
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.Toast
 import androidx.core.content.ContextCompat
@@ -394,23 +395,22 @@ internal class AndroidARView(
     override fun getView(): View = arSceneView
 
     override fun dispose() {
-        Log.d(TAG, "dispose called")
+        isDisposed = true
+        activity.application.unregisterActivityLifecycleCallbacks(activityLifecycleCallbacks)
+
+        try { onPause() } catch (_: Exception) {}
+        val rootView = activity.findViewById<ViewGroup>(android.R.id.content)
+        try { removeGuide(animatedGuide) } catch (_: Exception) {}
+        try { rootView.removeView(animatedGuide2) } catch (_: Exception) {}
+        activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         try {
-            isDisposed = true
-            // مهم: فك تسجيل الـ lifecycle callbacks أولًا
-            activity.application.unregisterActivityLifecycleCallbacks(activityLifecycleCallbacks)
-
-            // أوقف العرض ثم دمّر الموارد الخاصة بهذا الـ view فقط
-            try { onPause() } catch (_: Exception) {}
-            try { onDestroy() } catch (_: Exception) {}
-
-            // ⚠️ لا تستدعِ ArSceneView.destroyAllResources() هنا!
-            // هذه تدمّر Filament Engine على مستوى العملية كلها وتسبب الكراش عند إعادة الدخول.
-
+            arSceneView.session?.close()
+            arSceneView.destroy()
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.w(TAG, "dispose destroy issue: ${e.message}")
         }
     }
+
 
 
     init {
@@ -540,13 +540,6 @@ internal class AndroidARView(
                 ensureSunLight(120_000f)
 
                 // عمق
-                if(depthOcclusionMode) {
-                    arSceneView.cameraStream.depthOcclusionMode =
-                        if (session.isDepthModeSupported(Config.DepthMode.AUTOMATIC))
-                            CameraStream.DepthOcclusionMode.DEPTH_OCCLUSION_ENABLED
-                        else
-                            CameraStream.DepthOcclusionMode.DEPTH_OCCLUSION_DISABLED
-                }
 
             } catch (ex: UnavailableUserDeclinedInstallationException) {
                 Toast.makeText(activity, "User declined ARCore install: ${ex.localizedMessage}", Toast.LENGTH_LONG).show()
@@ -571,29 +564,36 @@ internal class AndroidARView(
         }
 
         try {
-            arSceneView.resume()
-        } catch (ex: CameraNotAvailableException) {
-            Log.e(TAG, "Unable to get camera", ex)
-            Toast.makeText(activity, "الكاميرا غير متاحة حالياً. تأكد أنها ليست مستخدمة بتطبيق آخر ثم حاول مجدداً.", Toast.LENGTH_LONG).show()
-            return
+            activity.runOnUiThread {
+                try {
+                    arSceneView.resume()
+                    activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                } catch (ex: CameraNotAvailableException) {
+                    Log.e(TAG, "Unable to get camera", ex)
+                    Toast.makeText(
+                        activity,
+                        "الكاميرا غير متاحة حالياً. تأكد أنها ليست مستخدمة بتطبيق آخر ثم حاول مجدداً.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } catch (e: Exception) {
+                    Log.e(TAG, "arSceneView.resume() threw an exception", e)
+                }
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "arSceneView.resume() threw an exception", e)
-            return
+            Log.e(TAG, "runOnUiThread failed", e)
         }
+
     }
 
     fun onPause() {
         if (isDisposed) return
 
         // hide instructions view if no longer required
+        val rootView = activity.findViewById<ViewGroup>(android.R.id.content)
+        try { removeGuide(animatedGuide) } catch (_: Exception) {}
+        try { rootView.removeView(animatedGuide2) } catch (_: Exception) {}
+        activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (showAnimatedGuide) {
-            val view = activity.findViewById(R.id.content) as ViewGroup
-            if (::animatedGuide.isInitialized && animatedGuide.parent === view) {
-                removeGuide(animatedGuide)
-            }
-            if (::animatedGuide2.isInitialized && animatedGuide2.parent === view) {
-                view.removeView(animatedGuide2)
-            }
             showAnimatedGuide = false
         }
         try {
@@ -604,20 +604,16 @@ internal class AndroidARView(
     }
 
     fun onDestroy() {
-        if (isDisposed) {
-            // سنستمر في التدمير مرة واحدة بأمان
-        }
         try {
             arSceneView.scene?.removeOnUpdateListener(sceneUpdateListener)
             arSceneView.scene?.removeOnPeekTouchListener(onNodeTapListener)
 
             sunNode?.setParent(null)
             sunNode = null
-
-            arSceneView.session?.close()
-            arSceneView.destroy()
+            // ⚠️ لا تغلق الجلسة هنا
+            // ولا تستدعِ destroy() إلا من dispose()
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.w(TAG, "onDestroy issue: ${e.message}")
         }
     }
 
@@ -763,6 +759,11 @@ internal class AndroidARView(
         }
         if (arDepthOcclusionMode==true) {
             depthOcclusionMode=true
+            arSceneView.cameraStream.depthOcclusionMode =
+                if (arSceneView.session!!.isDepthModeSupported(Config.DepthMode.AUTOMATIC))
+                    CameraStream.DepthOcclusionMode.DEPTH_OCCLUSION_ENABLED
+                else
+                    CameraStream.DepthOcclusionMode.DEPTH_OCCLUSION_DISABLED
         }
         var needRebuild = false
 
@@ -882,7 +883,8 @@ internal class AndroidARView(
                     }
 
                     // رفع تلقائي عند الاكتمال
-                    if (!hostingTriggered && allGood()) {
+                    val avgQuality = computeOverallQuality()
+                    if (!hostingTriggered && avgQuality >= 0.6f) { // غير 0.8 حسب العتبة اللي تناسبك
                         hostingTriggered = true
                         autoHostCloudAnchor(anchorNode)
                     }
@@ -916,7 +918,6 @@ internal class AndroidARView(
         dict_anchor: HashMap<String, Any>? = null
     ): CompletableFuture<Boolean> {
         val completableFutureSuccess: CompletableFuture<Boolean> = CompletableFuture()
-
         try {
             when (dict_node["type"] as Int) {
                 0 -> { // GLTF2 from Flutter assets
@@ -979,12 +980,14 @@ internal class AndroidARView(
                             val anchorNode = arSceneView.scene.findByName(anchorName) as AnchorNode?
                             if (anchorNode != null) {
                                 anchorNode.addChild(node)
+                                applyGroundBiasIfNeeded(node /*, 0.015f أو 0.02f حسب ما يلائمك */)
                                 completableFutureSuccess.complete(true); return@thenAccept
                             } else {
                                 completableFutureSuccess.complete(false); return@thenAccept
                             }
                         } else {
                             arSceneView.scene.addChild(node)
+                            applyGroundBiasIfNeeded(node /*, 0.015f أو 0.02f حسب ما يلائمك */)
                             completableFutureSuccess.complete(true); return@thenAccept
                         }
 
@@ -993,8 +996,9 @@ internal class AndroidARView(
                         val runnable = Runnable {
                             sessionManagerChannel.invokeMethod(
                                 "onError",
-                                listOf("Unable to load renderable ${dict_node["uri"]}")
+                                listOf("Unable to load renderable ${dict_node["uri"]}: ${throwable?.message}")
                             )
+
                         }
                         mainHandler.post(runnable)
                         completableFutureSuccess.completeExceptionally(throwable)
@@ -1237,6 +1241,7 @@ internal class AndroidARView(
             val cloudState = anchor!!.cloudAnchorState
             if (cloudState.isError) {
                 Log.e(TAG, "Error uploading anchor, state $cloudState")
+                anchorManagerChannel.invokeMethod("autoHostCloudAnchorStarted", false)
                 sessionManagerChannel.invokeMethod("onError", listOf("Error uploading anchor, state $cloudState"))
                 return
             }
@@ -1306,13 +1311,14 @@ internal class AndroidARView(
         maxRetries: Int = 5,
         baseDelayMs: Long = 750L
     ) {
-        sessionManagerChannel.invokeMethod(
-            "onCloudAnchorResolveAttempt",
-            listOf(anchorId, attempt, maxRetries)
-        )
+//        sessionManagerChannel.invokeMethod(
+//            "onCloudAnchorResolveAttempt",
+//            listOf(anchorId, attempt, maxRetries)
+//        )
 
         cloudAnchorHandler.resolveCloudAnchor(anchorId, object : CloudAnchorHandlers.CloudAnchorListener {
             override fun onCloudTaskComplete(anchorName: String?, anchor: Anchor?) {
+                Log.w(TAG, "done down Anchor $anchorName  cloudAnchorState: ${anchor?.cloudAnchorState}")
                 if (anchor == null) {
                     if (attempt < maxRetries) {
                         val nextDelay = baseDelayMs * (1 shl attempt)
@@ -1351,6 +1357,7 @@ internal class AndroidARView(
                     serializeAnchor(newAnchorNode, anchor),
                     object : MethodChannel.Result {
                         override fun success(result: Any?) {
+                            Log.w(TAG, "done down newAnchorNode $result  cloudAnchorState: ${anchor.cloudAnchorState}")
                             newAnchorNode.name = result.toString()
                             newAnchorNode.setParent(arSceneView.scene)
                         }
@@ -1419,12 +1426,17 @@ internal class AndroidARView(
         }
     }
 
+
+    // CHANGED: تلوين العمود الصحيح حتى مع القوس الجزئي (نصل له بالاسم لا بفهرس children)
     private fun setColumnState(index: Int, state: Int) {
         // لا ننزل حالة عمود من GOOD إلى أضعف
-        if (state <= qualityStates[index]) return
+        if (state <= qualityStates.getOrElse(index) { 0 }) return
         qualityStates[index] = state
 
-        val node = qualityRingParent?.children?.getOrNull(index) as? Node ?: return
+        val colName = "quality_col_$index"
+        val node = qualityRingParent?.children
+            ?.firstOrNull { it.name == colName } as? Node ?: return
+
         val chosenMat = when (state) {
             2 -> matGreen
             1 -> matYellow
@@ -1433,20 +1445,20 @@ internal class AndroidARView(
         (node.renderable as? ModelRenderable)?.material = chosenMat
     }
 
-    private fun allGood(): Boolean {
-        val total = qualityStates.size
-        if (total == 0) return false
 
-        val count2 = qualityStates.count { it == 2 }
-        val count1 = qualityStates.count { it == 1 }
-
-        val only1or2 = (count1 + count2 == total)
-        if (!only1or2) return false
-
-        val halfOk = count2 * 2 >= total          // >= 50%
-        val seventyOk = count2 * 10 >= 7 * total  // >= 70%
-
-        return halfOk || seventyOk
+    private fun computeOverallQuality(): Float {
+        var sum = 0f
+        for (state in qualityStates) {
+            when (state) {
+                1 -> sum += 0.6f   // SUFFICIENT
+                2 -> sum += 1.0f   // GOOD
+            }
+        }
+        return if (qualityStates.isNotEmpty()) {
+            sum / qualityStates.size.toFloat()
+        } else {
+            0f
+        }
     }
 
     private fun azimuthDeg(from: Vector3, to: Vector3): Float {
@@ -1480,6 +1492,7 @@ internal class AndroidARView(
             }
 
             // ارفع الـ Anchor الحالي
+            anchorManagerChannel.invokeMethod("autoHostCloudAnchorStarted", true)
             cloudAnchorHandler.hostCloudAnchorWithTtl(
                 hostingAnchorName ?: "auto_anchor",
                 anchorNode.anchor,
@@ -1546,18 +1559,22 @@ internal class AndroidARView(
      * - ارتفاع الأعمدة ~ نصف ارتفاع الجسم.
      * - عرض العمود نسبة من نصف القطر.
      */
+    // أصغر وأقرب للعنصر
     private fun computeAutoRingParams(anchorNode: AnchorNode): RingParams {
         val sz = estimateAnchorObjectBounds(anchorNode)
         val maxHoriz = maxOf(sz.x, sz.z)
         val objectRadius = (maxHoriz * 0.5f).coerceAtLeast(0.05f)
         val objectHeight = sz.y.coerceAtLeast(0.05f)
 
-        val radius = (objectRadius * 1.15f).coerceIn(0.08f, 2.0f)    // قريب من الجسم (تقليل المسافة)
-        val height = (objectHeight * 0.38f).coerceIn(0.05f, 1.0f)  // أقصر أعمدة
-        val colWidth = (radius * 0.08f).coerceIn(0.01f, 0.10f)       // سمك متناسب مع نصف القطر
+        val radius   = (objectRadius * 1.02f).coerceIn(0.05f, 2.0f)
+
+        val height   = (objectHeight * 0.28f).coerceIn(0.04f, 0.8f)
+
+        val colWidth = (radius * 0.05f).coerceIn(0.008f, 0.08f)
 
         return RingParams(radius, height, colWidth)
     }
+
 
     private fun ringParamsChangedSignificantly(a: RingParams?, b: RingParams): Boolean {
         if (a == null) return true
@@ -1572,10 +1589,32 @@ internal class AndroidARView(
     private fun processNextResolve() {
         val next = resolveQueue.removeFirstOrNull() ?: run { resolving = false; return }
         resolving = true
+        Log.d(TAG, "$next processNextResolve")
 
         resolveCloudAnchorWithRetry(next)  // الدالة الحالية تنتهي داخل listener
-        // ابسِط: استدعِ التالي بعد مهلة قصيرة
+
         mainHandler.postDelayed({ processNextResolve() }, 200L)
     }
+    // NEW: يرفع المجسّم شعرة فوق الأرض لتقليل القطع من القاعدة
+    // NEW: يرفع المجسّم شعرة فوق الأرض إذا كان Pivot عند القاعدة
+    private fun applyGroundBiasIfNeeded(node: Node, biasMeters: Float = 0.04f) {
+        val r = node.renderable ?: return
+        val box = (r.collisionShape as? com.google.ar.sceneform.collision.Box) ?: return
+
+        val size = box.size
+        val center = box.center
+        val halfH = size.y * 0.5f
+
+        // Pivot عند القاعدة تقريبياً إذا center.y ≈ -halfH
+        val pivotAtBase = kotlin.math.abs(center.y + halfH) < 1e-2f
+        if (pivotAtBase) {
+            node.localPosition = Vector3(
+                node.localPosition.x,
+                node.localPosition.y + biasMeters,
+                node.localPosition.z
+            )
+        }
+    }
+
 
 }

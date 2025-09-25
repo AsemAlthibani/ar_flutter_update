@@ -7,7 +7,10 @@ import com.google.ar.sceneform.math.Quaternion
 
 import java.util.concurrent.CompletableFuture
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import android.widget.TextView
 import com.google.ar.core.*
 import com.google.ar.sceneform.rendering.*
 import com.google.ar.sceneform.ux.*
@@ -228,7 +231,7 @@ class ArModelBuilders {
         return completableFutureNode
     }
     // Creates a node from a given glb model path or URL
-    fun makeNodeFromGlb(
+    fun makeNodeFromGlb22222222(
         context: Context,
         transformationSystem: TransformationSystem,
         objectManagerChannel: MethodChannel,
@@ -287,8 +290,7 @@ class ArModelBuilders {
                 ModelRenderable.builder()
                     .setSource(context, Uri.parse(modelPath)) // رابط أو مسار محلي
                     .setIsFilamentGltf(true)
-                    .setRegistryId(modelPath)                // cache key
-                    .setAsyncLoadEnabled(true)               // يحمّل التكسشرات لاحقًا
+                    .setRegistryId(modelPath)
                     .build()
                     .thenAccept { renderable ->
                         try {
@@ -331,6 +333,95 @@ class ArModelBuilders {
 
         } catch (e: Exception) {
             // أي خطأ غير متوقّع في الإعداد العام
+            Log.e("AndroidARView", "makeNodeFromGlb outer error", e)
+            completable.completeExceptionally(e)
+        }
+
+        return completable
+    }
+
+    fun makeNodeFromGlb(
+        context: Context,
+        transformationSystem: TransformationSystem,
+        objectManagerChannel: MethodChannel,
+        enablePans: Boolean,
+        enableRotation: Boolean,
+        name: String,
+        modelPath: String,
+        transformation: ArrayList<Double>
+    ): CompletableFuture<CustomTransformableNode> {
+
+        val completable = CompletableFuture<CustomTransformableNode>()
+        val mainHandler = Handler(Looper.getMainLooper())
+
+        try {
+            val node = CustomTransformableNode(
+                transformationSystem,
+                objectManagerChannel,
+                enablePans,
+                enableRotation
+            )
+
+            // تحميل GLB مباشرة بدون HUD
+            GlbRenderableLoader.load(context, modelPath)
+                .thenAccept { renderable ->
+                    try {
+                        node.renderable = renderable
+                        node.name = name
+
+                        // --- حساب autoScaleFactor ---
+                        var autoScaleFactor = 1.0f
+                        try {
+                            val shape = renderable.collisionShape
+                            if (shape is com.google.ar.sceneform.collision.Box) {
+                                val boxSize = shape.size
+                                val largestDim = maxOf(boxSize.x, boxSize.y, boxSize.z)
+
+                                val maxSize = 2.0f // مترين
+                                if (largestDim > maxSize) {
+                                    autoScaleFactor = maxSize / largestDim
+                                    Log.i("AndroidARView", "Auto-scale factor = $autoScaleFactor")
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e("AndroidARView", "Auto-scale check failed", e)
+                        }
+
+                        // --- تطبيق التحويلات من Flutter × autoScaleFactor ---
+                        try {
+                            val (scale, pos, rot) = deserializeMatrix4s(transformation)
+                            node.worldScale = Vector3(
+                                scale.x * autoScaleFactor,
+                                scale.y * autoScaleFactor,
+                                scale.z * autoScaleFactor
+                            )
+                            node.worldPosition = pos
+                            node.worldRotation = rot
+                        } catch (e: Exception) {
+                            Log.e("AndroidARView", "Failed to apply transform", e)
+                            completable.completeExceptionally(e)
+                            return@thenAccept
+                        }
+
+                        // تشغيل أنيميشن لو متاح
+                        val inst = node.renderableInstance
+                        if (inst != null && (inst.animationCount ?: 0) > 0) {
+                            inst.animate(true)?.start()
+                        }
+
+                        completable.complete(node)
+
+                    } catch (e: Exception) {
+                        Log.e("AndroidARView", "Error inside thenAccept", e)
+                        completable.completeExceptionally(e)
+                    }
+                }.exceptionally { t ->
+                    Log.e("AndroidARView", "Renderable build failed ($modelPath): ${t?.message}", t)
+                    completable.completeExceptionally(t)
+                    null
+                }
+
+        } catch (e: Exception) {
             Log.e("AndroidARView", "makeNodeFromGlb outer error", e)
             completable.completeExceptionally(e)
         }
