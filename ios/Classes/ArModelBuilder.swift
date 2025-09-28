@@ -314,14 +314,104 @@ func makeNodeFromWebGlb2(name: String, modelURL: String, transformation: [NSNumb
     }
 }
 
-func makeNodeFromWebGlb(name: String, modelURL: String, transformation: [NSNumber]?, targetSize: Float? = nil) -> Future<SCNNode?, Never> {
+    func makeNodeFromWebGlb1223(
+    name: String,
+    modelURL: String,
+    transformation: [NSNumber]?,
+    targetSize: Float? = nil
+    ) -> Future<SCNNode?, Never> {
+
+        return Future { promise in
+            var node: SCNNode? = SCNNode()
+
+            let handler: (URL?, URLResponse?, Error?) -> Void = { (url: URL?, urlResponse: URLResponse?, error: Error?) in
+                if ((urlResponse as? HTTPURLResponse)?.statusCode != 200) {
+                    print("makeNodeFromWebGlb received non-200 response code")
+                    node = nil
+                    promise(.success(node))
+                    return
+                }
+
+                guard let fileURL = url else { return }
+                do {
+                    let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
+                    let documentsDirectory = paths[0]
+                    let targetURL = documentsDirectory.appendingPathComponent(urlResponse!.url!.lastPathComponent)
+
+                    try? FileManager.default.removeItem(at: targetURL)
+                    try FileManager.default.copyItem(at: fileURL, to: targetURL)
+
+                    do {
+                        let sceneSource = GLTFSceneSource(url: targetURL)
+                        let scene = try sceneSource.scene()
+
+                        // -------------------------
+                        // Create model node
+                        // -------------------------
+                        node = SCNNode()
+                        node?.name = name
+
+                        for child in scene.rootNode.childNodes {
+                            node?.addChildNode(child)
+                        }
+
+                        if let unwrappedNode = node, let transform = transformation {
+                            let (scale, position, rotation) = deserializeMatrix4s(transform, scaleFactor: 0.65)
+                            unwrappedNode.pivot = SCNMatrix4Identity
+                            unwrappedNode.position = position
+                            unwrappedNode.scale = scale
+                            unwrappedNode.orientation = rotation
+                        }
+
+                        // -------------------------
+                        // Apply uniform scaling if targetSize is provided
+                        // -------------------------
+                        if let unwrappedNode = node, let targetSize = targetSize {
+                            self.scaleNodeToUniformSize(unwrappedNode, targetSize: targetSize)
+
+                            let (minVec, maxVec) = unwrappedNode.boundingBox
+                            let width  = (maxVec.x - minVec.x) * unwrappedNode.scale.x
+                            let height = (maxVec.y - minVec.y) * unwrappedNode.scale.y
+                            let length = (maxVec.z - minVec.z) * unwrappedNode.scale.z
+                            print("Scaled real-world size: W:\(width)m, H:\(height)m, L:\(length)m")
+                        }
+
+                    } catch {
+                        print("\(error.localizedDescription)")
+                        node = nil
+                    }
+
+                    try FileManager.default.removeItem(at: targetURL)
+                    promise(.success(node))
+
+                } catch {
+                    node = nil
+                    promise(.success(node))
+                }
+            }
+
+            let downloadTask = URLSession.shared.downloadTask(
+                with: URL(string: modelURL)!,
+                completionHandler: handler
+            )
+            downloadTask.resume()
+        }
+    }
+func makeNodeFromWebGlb(
+    name: String,
+    modelURL: String,
+    transformation: [NSNumber]?,
+    targetSize: Float? = nil,
+    autoScale: Bool = false,
+    maxSize: Float = 2.0,   
+) -> Future<SCNNode?, Never> {
 
     return Future { promise in
         var node: SCNNode? = SCNNode()
 
         let handler: (URL?, URLResponse?, Error?) -> Void = { (url: URL?, urlResponse: URLResponse?, error: Error?) in
             if ((urlResponse as? HTTPURLResponse)?.statusCode != 200) {
-                print("makeNodeFromWebGltf received non-200 response code")
+                print("makeNodeFromWebGlb received non-200 response code")
                 node = nil
                 promise(.success(node))
                 return
@@ -343,82 +433,81 @@ func makeNodeFromWebGlb(name: String, modelURL: String, transformation: [NSNumbe
                     // -------------------------
                     // Create model node
                     // -------------------------
-                    node = SCNNode()
-                    node?.name = name
+                    let parent = SCNNode()
+                    parent.name = name
 
                     for child in scene.rootNode.childNodes {
-                        node?.addChildNode(child)
+                        parent.addChildNode(child)
                     }
 
-                    node?.name = name
-     if let unwrappedNode = node, let transform = transformation {
-         let (scale, position, rotation) = deserializeMatrix4s(transform, scaleFactor: 0.65)
-
-         unwrappedNode.pivot = SCNMatrix4Identity  // لضمان أن pivot صحيح
-         unwrappedNode.position = position
-         unwrappedNode.scale = scale
-         unwrappedNode.orientation = rotation
-     }
+                    // -------------------------
+                    // 1) طبّق التحويل القادم من Flutter (بدون أي factor إضافي)
+                    // -------------------------
+                    if let transform = transformation {
+                        let (scale, position, rotation) = deserializeMatrix4s(transform)
+                        parent.pivot = SCNMatrix4Identity
+                        parent.position = position
+                        parent.scale = scale          // non-uniform from matrix
+                        parent.orientation = rotation
+                    }
 
                     // -------------------------
-                    // Apply uniform scaling if targetSize is provided
+                    // 2) autoScale مطابق لـ Android: احسب largestDim من الهيريكي
+                    //    (قبل أي targetSize)، واضرب scale الحالي في factor موحّد
                     // -------------------------
-if let unwrappedNode = node, let targetSize = targetSize {
-    self.scaleNodeToUniformSize(unwrappedNode, targetSize: targetSize)
+                    if autoScale {
+                        // احفظ الـ scale الحالي
+                        let originalScale = parent.scale
 
-    // طباعة الأبعاد الواقعية بعد التكبير/التصغير
-    let (minVec, maxVec) = unwrappedNode.boundingBox
-    let width  = (maxVec.x - minVec.x) * unwrappedNode.scale.x
-    let height = (maxVec.y - minVec.y) * unwrappedNode.scale.y
-    let length = (maxVec.z - minVec.z) * unwrappedNode.scale.z
-    print("Scaled real-world size: W:\(width)m, H:\(height)m, L:\(length)m")
-}
+                        // مؤقتًا set scale = (1,1,1) لحساب أبعاد الموديل الأصلية (بدون تأثير scale الحالي)
+                        parent.scale = SCNVector3(1,1,1)
 
+                        if let (bbMin, bbMax) = hierarchyBoundingBox(inParentSpace: parent) {
+                            let width  = bbMax.x - bbMin.x
+                            let height = bbMax.y - bbMin.y
+                            let depth  = bbMax.z - bbMin.z
+                            let largestDim = max(width, max(height, depth))
+
+                            var autoScaleFactor: Float = 1.0
+                            if largestDim > maxSize {
+                                autoScaleFactor = maxSize / largestDim
+                                print("Auto-scale factor = \(autoScaleFactor)")
+                            }
+
+                            // أعد scale الأصلي * autoScaleFactor (uniform)
+                            parent.scale = SCNVector3(
+                                originalScale.x * autoScaleFactor,
+                                originalScale.y * autoScaleFactor,
+                                originalScale.z * autoScaleFactor
+                            )
+                        } else {
+                            // لم نجد هندسة، أعد scale الأصلي
+                            parent.scale = originalScale
+                        }
+                    }
 
                     // -------------------------
-                    // Scene root node (floor + lights + model)
+                    // 3) خيار إضافي: targetSize (إن رغبت الاحتفاظ به)
+                    //    هذا يطبّق scale موحّد للوصول إلى أبعاد معيّنة
                     // -------------------------
-                    let sceneRoot = SCNNode()
+                    if let targetSize = targetSize {
+                        // احسب الأبعاد الحالية بعد كل ما سبق
+                        if let (bbMin, bbMax) = hierarchyBoundingBox(inParentSpace: parent) {
+                            let width  = (bbMax.x - bbMin.x) * parent.scale.x
+                            let height = (bbMax.y - bbMin.y) * parent.scale.y
+                            let depth  = (bbMax.z - bbMin.z) * parent.scale.z
+                            let largest = max(width, max(height, depth))
+                            if largest > 0 {
+                                let factor = targetSize / largest
+                                parent.scale = SCNVector3(parent.scale.x * factor,
+                                                          parent.scale.y * factor,
+                                                          parent.scale.z * factor)
+                                print("Scaled to target size. Real size W:\(width*factor)m, H:\(height*factor)m, D:\(depth*factor)m")
+                            }
+                        }
+                    }
 
-                    // Floor
-                    let floorPlane = SCNFloor()
-                    let floorNode = SCNNode(geometry: floorPlane)
-                    let floorMaterial = SCNMaterial()
-                    floorMaterial.lightingModel = .constant
-                    floorMaterial.writesToDepthBuffer = true
-                    floorMaterial.colorBufferWriteMask = []
-                    floorMaterial.isDoubleSided = true
-                    floorPlane.materials = [floorMaterial]
-                    sceneRoot.addChildNode(floorNode)
-
-                    // Ambient Light
-                    let ambientLight = SCNNode()
-                    ambientLight.light = SCNLight()
-                    ambientLight.light?.type = .ambient
-                    ambientLight.light?.color = UIColor.white.withAlphaComponent(0.2)
-                    sceneRoot.addChildNode(ambientLight)
-
-                    // Directional Light (Shadow)
-                    let directionalLightNode = SCNNode()
-                    directionalLightNode.light = SCNLight()
-                    directionalLightNode.light?.color = UIColor.white.withAlphaComponent(0.1) // خفف من 0.2 إلى 0.1
-                    directionalLightNode.light?.shadowColor = UIColor.black.withAlphaComponent(0.3)
-                    directionalLightNode.light?.intensity = 100
-                    directionalLightNode.light?.type = .directional
-                    directionalLightNode.light?.castsShadow = true
-                    directionalLightNode.light?.shadowMode = .deferred
-                    directionalLightNode.light?.shadowMapSize = CGSize(width: 2048, height: 2048)
-                    directionalLightNode.light?.shadowRadius = 16
-                    directionalLightNode.light?.shadowSampleCount = 64
-                    directionalLightNode.position = SCNVector3(x: 15, y: 0, z: 15) // فوق الموديل مباشرة
-                    directionalLightNode.eulerAngles = SCNVector3(-Float.pi/3, 3, 18) // مائل للأسفل 60°
-                    sceneRoot.addChildNode(directionalLightNode)
-
-                    // Position model above floor
-                    node?.position = SCNVector3(0, 0.0, 0)
-                    sceneRoot.addChildNode(node!)
-
-                    node = sceneRoot
+                    node = parent
 
                 } catch {
                     print("\(error.localizedDescription)")
@@ -434,10 +523,14 @@ if let unwrappedNode = node, let targetSize = targetSize {
             }
         }
 
-        let downloadTask = URLSession.shared.downloadTask(with: URL(string: modelURL)!, completionHandler: handler)
+        let downloadTask = URLSession.shared.downloadTask(
+            with: URL(string: modelURL)!,
+            completionHandler: handler
+        )
         downloadTask.resume()
     }
 }
+
 func scaleNodeToUniformSize(_ node: SCNNode, targetSize: Float) {
     let (minVec, maxVec) = node.boundingBox
     let width = maxVec.x - minVec.x

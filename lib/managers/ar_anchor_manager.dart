@@ -56,7 +56,7 @@ class ARAnchorManager {
           print(
               "UPLOADED ANCHOR WITH ID: " + cloudanchorid + ", NAME: " + name);
           final currentAnchor =
-              pendingAnchors.where((element) => element.name == name).first;
+              pendingAnchors.where((element) => element.name == name).last;
           // Update anchor with cloud anchor ID
           (currentAnchor as ARPlaneAnchor).cloudanchorid = cloudanchorid;
           // Remove anchor from list of pending anchors
@@ -72,7 +72,7 @@ class ARAnchorManager {
           print(
               "UPLOADED ANCHOR WITH ID: " + cloudanchorid + ", NAME: " + name);
           final currentAnchor =
-              pendingAnchors.where((element) => element.name == name).first;
+              pendingAnchors.where((element) => element.name == name).last;
           // Update anchor with cloud anchor ID
           (currentAnchor as ARPlaneAnchor).cloudanchorid = cloudanchorid;
           // Remove anchor from list of pending anchors

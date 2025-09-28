@@ -19,6 +19,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.animation.AccelerateDecelerateInterpolator
+import android.widget.ProgressBar
+import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.core.view.doOnPreDraw
@@ -45,6 +47,7 @@ import java.io.IOException
 import java.nio.FloatBuffer
 import java.util.concurrent.CompletableFuture
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 internal class AndroidARView(
     val activity: Activity,
@@ -104,7 +107,7 @@ internal class AndroidARView(
     private var isCameraEnabled = true
     private var sunNode: Node? = null
     private var qualityRingParent: Node? = null
-    private var qualitySegments: Int = 16                     // عدد الأعمدة حول العنصر
+    private var qualitySegments: Int = 32           // بدّل من 16 إلى 32 (أو 48 لو تحب أضيق)
     private var qualityStates: IntArray = IntArray(qualitySegments) { 0 }// 0=UNSEEN, 1=SEEN_OK (>= SUFFICIENT), 2=GOOD
 
     private var hostingTriggered = false
@@ -123,6 +126,7 @@ internal class AndroidARView(
     private val resolveQueue = ArrayDeque<String>()
     private var resolving = false
 
+    private var arcCoverage: Float = 0.7f
 
 
     // Method channel handlers
@@ -338,7 +342,7 @@ internal class AndroidARView(
                         val anchorName: String? = call.argument("name")
                         val ttl: Int = call.argument<Int>("ttl") ?: 365
                         val frame = arSceneView.arFrame
-                        ringPending = true
+                        ringPending = (qualityRingParent == null)   // لا تعيد البناء إن الحلقة موجودة
                         hostingAnchorName = anchorName
                         if (frame != null) {
                             val pointCloud = frame.acquirePointCloud()
@@ -769,7 +773,7 @@ internal class AndroidARView(
 
         arSegmentsQualityRing?.let {
             qualitySegments = it.coerceIn(4, 72) // حدود معقولة
-            qualityStates = IntArray(qualitySegments) { 0 }
+            ensureQualityStatesSize(qualitySegments)   // ← بدل تصفير المصفوفة
             needRebuild = true
         }
         arRadiusQualityRing?.let { ringRadiusMeters = it.toFloat().coerceAtLeast(0.1f) ; needRebuild = true }
@@ -961,6 +965,7 @@ internal class AndroidARView(
                         null
                     }
                 }
+                // داخل when(type) -> case 1
                 1 -> { // GLB from web
                     modelBuilder.makeNodeFromGlb(
                         viewContext,
@@ -970,7 +975,8 @@ internal class AndroidARView(
                         enableRotation,
                         dict_node["name"] as String,
                         dict_node["uri"] as String,
-                        dict_node["transformation"] as ArrayList<Double>
+                        dict_node["transformation"] as ArrayList<Double>,
+                        arSceneView.planeRenderer.isVisible,
                     ).thenAccept { node ->
 
                         val anchorName: String? = dict_anchor?.get("name") as? String
@@ -980,14 +986,28 @@ internal class AndroidARView(
                             val anchorNode = arSceneView.scene.findByName(anchorName) as AnchorNode?
                             if (anchorNode != null) {
                                 anchorNode.addChild(node)
-                                applyGroundBiasIfNeeded(node /*, 0.015f أو 0.02f حسب ما يلائمك */)
+                                val transform = dict_node["transformation"] as? ArrayList<Double>
+                                if (transform != null) {
+                                    val mainHandler = Handler(viewContext.mainLooper)
+                                    mainHandler.post {
+                                        transformNode(dict_node["name"] as String, transform)
+                                        applyGroundBiasIfNeeded(node /*, 0.015f أو 0.02f حسب ما يلائمك */)
+                                    }
+                                }
                                 completableFutureSuccess.complete(true); return@thenAccept
                             } else {
                                 completableFutureSuccess.complete(false); return@thenAccept
                             }
                         } else {
                             arSceneView.scene.addChild(node)
-                            applyGroundBiasIfNeeded(node /*, 0.015f أو 0.02f حسب ما يلائمك */)
+                            val transform = dict_node["transformation"] as? ArrayList<Double>
+                            if (transform != null) {
+                                val mainHandler = Handler(viewContext.mainLooper)
+                                mainHandler.post {
+                                    transformNode(dict_node["name"] as String, transform)
+                                    applyGroundBiasIfNeeded(node /*, 0.015f أو 0.02f حسب ما يلائمك */)
+                                }
+                            }
                             completableFutureSuccess.complete(true); return@thenAccept
                         }
 
@@ -1017,7 +1037,7 @@ internal class AndroidARView(
                         enableRotation,
                         dict_node["name"] as String,
                         assetPath,
-                        dict_node["transformation"] as ArrayList<Double>
+                        dict_node["transformation"] as ArrayList<Double>,false
                     ).thenAccept { node ->
                         val anchorName: String? = dict_anchor?.get("name") as? String
                         val anchorType: Int? = dict_anchor?.get("type") as? Int
@@ -1099,15 +1119,14 @@ internal class AndroidARView(
     }
 
     private fun transformNode(name: String, transform: ArrayList<Double>) {
-        val node = arSceneView.scene.findByName(name)
-        node?.let {
-            val currentLocalPos = node.localPosition
-            val (scale, position, rotation) = deserializeMatrix4s(transform)
-            it.localScale = scale
-            it.localPosition = position
-            it.localRotation = currentLocalPos
-        }
+        val node = arSceneView.scene.findByName(name) ?: return
+        val currentLocalPos = node.localPosition
+        val (scale, position, rotation) = deserializeMatrix4s(transform)
+        node.localPosition = currentLocalPos
+        node.localRotation = rotation
+        node.localScale = scale
     }
+
 
     private fun onTap(hitTestResult: HitTestResult, motionEvent: MotionEvent?): Boolean {
         val frame = arSceneView.arFrame
@@ -1382,7 +1401,7 @@ internal class AndroidARView(
         })
     }
 
-    private fun buildQualityRingAround(anchorNode: AnchorNode) {
+    private fun buildQualityRingAround222222(anchorNode: AnchorNode) {
         // ==== [MODIFY] احسب بارامترات الحلقة من حجم الجسم لتقليل المسافة وتكييف الأعمدة ====
         val auto = computeAutoRingParams(anchorNode)
         ringRadiusMeters = auto.radius
@@ -1423,6 +1442,77 @@ internal class AndroidARView(
                     Vector3.up()
                 )
                 name = "quality_col_$i"
+            }
+        }
+    }
+    private fun buildQualityRingAround33333(anchorNode: AnchorNode) {
+        // احسب بارامترات الحلقة من حجم الجسم كما عندك
+        val auto = computeAutoRingParams(anchorNode)
+        ringRadiusMeters = auto.radius
+        ringHeightMeters = auto.height
+        ringColumnWidth = auto.colWidth
+        lastAutoRing = auto
+
+        // إزالة القديم
+        qualityRingParent?.setParent(null)
+        qualityRingParent = Node().apply { setParent(anchorNode) }
+
+        // إعادة ضبط الحالات
+        for (i in qualityStates.indices) qualityStates[i] = 0
+        if (!matsReady) return
+
+        // خطوة الزاوية لكل قطاع لو كانت الحلقة كاملة
+        val stepDeg = 360f / qualitySegments
+
+        // عدد الأعمدة الفعّالة (80% من الكل)
+        val activeSegments = maxOf(1, (qualitySegments * arcCoverage).roundToInt())
+
+        val frame = arSceneView.arFrame
+        val camPose = frame?.camera?.displayOrientedPose
+        val camWorld = if (camPose != null) Vector3(camPose.tx(), camPose.ty(), camPose.tz()) else null
+        val anchorPos = anchorNode.worldPosition
+
+        // الزاوية المواجهة للكاميرا (أمام الجسم)
+        val centerDeg: Float = if (camWorld != null) {
+            azimuthDeg(anchorPos, camWorld)
+        } else {
+            0f
+        }
+
+        // القوس متمركز حول centerDeg
+        val spanDeg = activeSegments * stepDeg
+        var startDeg = centerDeg - spanDeg / 2f
+
+        // ابنِ الأعمدة فقط ضمن هذا القوس
+        for (k in 0 until activeSegments) {
+
+            val angleDeg = startDeg + k * stepDeg
+
+            val angleRad = Math.toRadians(angleDeg.toDouble())
+            val x = (ringRadiusMeters * Math.cos(angleRad)).toFloat()
+            val z = (ringRadiusMeters * Math.sin(angleRad)).toFloat()
+
+            // نحسب فهرس القطاع العالمي حتى تبقى setColumnState تعمل بالاسم نفسه
+            val sectorIdx = sectorForAzimuth(angleDeg)
+
+            val col = Node().apply {
+                setParent(qualityRingParent)
+                localPosition = Vector3(x, ringHeightMeters / 2f, z)
+
+                val cyl = ShapeFactory.makeCylinder(
+                    ringColumnWidth,
+                    ringHeightMeters,
+                    Vector3(0f, 0f, 0f),
+                    matRed
+                )
+                renderable = cyl
+
+                localRotation = com.google.ar.sceneform.math.Quaternion.lookRotation(
+                    Vector3(-x, 0f, -z),
+                    Vector3.up()
+                )
+                // مهم: الاسم يتضمن sectorIdx العالمي
+                name = "quality_col_$sectorIdx"
             }
         }
     }
@@ -1567,7 +1657,7 @@ internal class AndroidARView(
         val objectRadius = (maxHoriz * 0.5f).coerceAtLeast(0.05f)
         val objectHeight = sz.y.coerceAtLeast(0.05f)
 
-        val radius   = (objectRadius * 1.02f).coerceIn(0.05f, 2.0f)
+        val radius = (objectRadius * 0.90f).coerceIn(0.05f, 2.0f)   // كان 1.02f -> 0.90f
 
         val height   = (objectHeight * 0.28f).coerceIn(0.04f, 0.8f)
 
@@ -1616,6 +1706,128 @@ internal class AndroidARView(
             )
         }
     }
+
+
+    private fun buildQualityRingAround(anchorNode: AnchorNode) {
+        // 1) احسب المقاسات التلقائية
+        val auto = computeAutoRingParams(anchorNode)
+        ringRadiusMeters = auto.radius
+        ringHeightMeters = auto.height
+        ringColumnWidth = auto.colWidth
+        lastAutoRing = auto
+
+        // إن كان أسفل العنصر تحت القاعدة، قلل الارتفاع للنصف
+        anchorFirstRenderable(anchorNode)?.let { n ->
+            val bottomY = getLocalBottomY(n)
+            if (bottomY < 0f) ringHeightMeters *= 0.5f
+        }
+
+        if (!matsReady) return
+
+        // 2) تأكد من حجم مصفوفة الحالات (بدون تصفير)
+        ensureQualityStatesSize(qualitySegments)
+
+        // 3) أنشئ/ثبّت أب الحلقة، ولا تفصل القديم نهائياً (حتى لا نفقد الحالة)
+        if (qualityRingParent == null) {
+            qualityRingParent = Node().apply {
+                name = "quality_ring_parent"
+                setParent(anchorNode)
+                worldPosition = anchorNode.worldPosition
+            }
+        } else {
+            if (qualityRingParent?.parent != anchorNode) {
+                qualityRingParent?.setParent(anchorNode)
+            }
+            qualityRingParent?.worldPosition = anchorNode.worldPosition
+            // نظّف الأعمدة القديمة فقط
+            qualityRingParent?.children?.toList()?.forEach { it.setParent(null) }
+        }
+        val parent = qualityRingParent ?: return
+
+        // 4) حدّد القوس وعدد الأعمدة الظاهرة (كلّها)، ووسّط القوس باتجاه الكاميرا
+        val visibleSegments = qualitySegments.coerceAtLeast(1)
+        val frame = arSceneView.arFrame
+        val camPose = frame?.camera?.displayOrientedPose
+        val camWorld = if (camPose != null) Vector3(camPose.tx(), camPose.ty(), camPose.tz()) else null
+        val anchorPos = anchorNode.worldPosition
+        val centerDeg = if (camWorld != null) azimuthDeg(anchorPos, camWorld) else 0f
+
+        val spanDeg = (360f * arcCoverage.coerceIn(0f, 1f))
+        val startDeg = centerDeg - spanDeg / 2f
+        val endDeg = centerDeg + spanDeg / 2f
+
+        // 5) ابنِ الأعمدة موزّعة بالتساوي على القوس، وسَمِّ كل عمود باسم القطاع العالمي
+        for (i in 0 until visibleSegments) {
+            val t = if (visibleSegments == 1) 0f else i.toFloat() / (visibleSegments - 1).toFloat()
+            val angleDeg = startDeg + t * (endDeg - startDeg)
+            val angleRad = Math.toRadians(angleDeg.toDouble())
+
+            val x = (ringRadiusMeters * kotlin.math.cos(angleRad)).toFloat()
+            val z = (ringRadiusMeters * kotlin.math.sin(angleRad)).toFloat()
+
+            // طبّع الزاوية واحسب sector عالمي يطابق حساباتك في onFrame
+            val normDeg = ((angleDeg % 360f) + 360f) % 360f
+            val sectorIdx = sectorForAzimuth(normDeg)
+
+            val col = Node().apply {
+                name = "quality_col_$sectorIdx"   // ← التسمية حسب القطاع العالمي
+                setParent(parent)
+
+                // نخلي قاعدة العمود على y=0، والسنتر عند y=height/2
+                localPosition = Vector3(x, ringHeightMeters / 2f, z)
+
+                // الأسطوانة: radius = ringColumnWidth
+                renderable = ShapeFactory.makeCylinder(
+                    /* radius = */ ringColumnWidth,
+                    /* height = */ ringHeightMeters,
+                    /* center = */ Vector3(0f, 0f, 0f),
+                    /* material = */ matRed
+                )
+
+                // وجّه العمود نحو المركز
+                localRotation = com.google.ar.sceneform.math.Quaternion.lookRotation(
+                    Vector3(x, 0f, z),
+                    Vector3.up()
+                )
+            }
+
+            // طبّق لون الحالة بناءً على sectorIdx
+            val state = qualityStates.getOrElse(sectorIdx) { 0 }
+            val chosenMat = when (state) {
+                2 -> matGreen
+                1 -> matYellow
+                else -> matRed
+            }
+            (col.renderable as? ModelRenderable)?.material = chosenMat
+        }
+    }
+
+    /** يحافظ على الجودة المخزّنة عند تغيّر عدد الأعمدة (بدون تصفير). */
+    private fun ensureQualityStatesSize(size: Int) {
+        if (qualityStates.size != size) {
+            val old = qualityStates
+            qualityStates = IntArray(size) { idx -> if (idx < old.size) old[idx] else 0 }
+        }
+    }
+    private fun getLocalBottomY(node: Node): Float {
+        val r = node.renderable as? ModelRenderable ?: return 0f
+        val box = r.collisionShape as? com.google.ar.sceneform.collision.Box ?: return 0f
+        val halfH = box.size.y * 0.5f
+        return box.center.y - halfH  // < 0 يعني نازل تحت القاعدة
+    }
+
+    private fun anchorFirstRenderable(anchorNode: AnchorNode): Node? {
+        var found: Node? = null
+        fun dfs(n: Node) {
+            if (found != null) return
+            if (n.renderable != null) { found = n; return }
+            n.children?.forEach { dfs(it) }
+        }
+        dfs(anchorNode)
+        return found
+    }
+
+
 
 
 }

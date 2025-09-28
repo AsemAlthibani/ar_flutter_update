@@ -1,16 +1,25 @@
-<?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="140dp"
-    android:layout_height="140dp"
-    android:background="#66000000"
-    android:padding="8dp">
+    android:layout_width="180dp"
+    android:layout_height="180dp"
+    android:background="@android:color/transparent">
+
+    <ProgressBar
+        android:id="@+id/circle"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:indeterminate="false"
+        android:max="100"
+        android:progress="0"
+        android:progressDrawable="@drawable/circular_progress_drawable"/>
+
     <TextView
-        android:id="@+id/txtPercent"
+        android:id="@+id/percent"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:gravity="center"
         android:text="0%"
-        android:textColor="@android:color/white"
-        android:textSize="26sp"
-        android:textStyle="bold"/>
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:textColor="#3B3F51B5"/>
 </FrameLayout>

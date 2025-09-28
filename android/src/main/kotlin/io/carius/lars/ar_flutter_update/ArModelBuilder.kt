@@ -348,7 +348,8 @@ class ArModelBuilders {
         enableRotation: Boolean,
         name: String,
         modelPath: String,
-        transformation: ArrayList<Double>
+        transformation: ArrayList<Double>,
+        autoScale: Boolean,
     ): CompletableFuture<CustomTransformableNode> {
 
         val completable = CompletableFuture<CustomTransformableNode>()
@@ -362,7 +363,7 @@ class ArModelBuilders {
                 enableRotation
             )
 
-            // تحميل GLB مباشرة بدون HUD
+
             GlbRenderableLoader.load(context, modelPath)
                 .thenAccept { renderable ->
                     try {
@@ -371,30 +372,40 @@ class ArModelBuilders {
 
                         // --- حساب autoScaleFactor ---
                         var autoScaleFactor = 1.0f
-                        try {
-                            val shape = renderable.collisionShape
-                            if (shape is com.google.ar.sceneform.collision.Box) {
-                                val boxSize = shape.size
-                                val largestDim = maxOf(boxSize.x, boxSize.y, boxSize.z)
+                        if(autoScale){
+                           try {
+                               val shape = renderable.collisionShape
+                               if (shape is com.google.ar.sceneform.collision.Box) {
+                                   val boxSize = shape.size
+                                   val largestDim = maxOf(boxSize.x, boxSize.y, boxSize.z)
 
-                                val maxSize = 2.0f // مترين
-                                if (largestDim > maxSize) {
-                                    autoScaleFactor = maxSize / largestDim
-                                    Log.i("AndroidARView", "Auto-scale factor = $autoScaleFactor")
-                                }
-                            }
-                        } catch (e: Exception) {
-                            Log.e("AndroidARView", "Auto-scale check failed", e)
-                        }
+                                   val maxSize = 2.0f // مترين
+                                   if (largestDim > maxSize) {
+                                       autoScaleFactor = maxSize / largestDim
+                                       Log.i("AndroidARView", "Auto-scale factor = $autoScaleFactor")
+                                   }
+                               }
+                           } catch (e: Exception) {
+                               Log.e("AndroidARView", "Auto-scale check failed", e)
+                           }
+                       }
 
                         // --- تطبيق التحويلات من Flutter × autoScaleFactor ---
                         try {
                             val (scale, pos, rot) = deserializeMatrix4s(transformation)
-                            node.worldScale = Vector3(
-                                scale.x * autoScaleFactor,
-                                scale.y * autoScaleFactor,
-                                scale.z * autoScaleFactor
-                            )
+                            if(autoScale){
+                                node.worldScale = Vector3(
+                                    scale.x * autoScaleFactor,
+                                    scale.y * autoScaleFactor,
+                                    scale.z * autoScaleFactor
+                                )
+                            }else{
+                                node.worldScale = Vector3(
+                                    scale.x,
+                                    scale.y,
+                                    scale.z
+                                )
+                            }
                             node.worldPosition = pos
                             node.worldRotation = rot
                         } catch (e: Exception) {
