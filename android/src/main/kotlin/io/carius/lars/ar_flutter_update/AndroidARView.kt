@@ -336,7 +336,7 @@ internal class AndroidARView(
                     }
                     "uploadAnchor" -> {
                         val anchorName: String? = call.argument("name")
-                        val ttl: Int? = call.argument("ttl")
+                        val ttl: Int = call.argument<Int>("ttl") ?: 365
                         val frame = arSceneView.arFrame
                         ringPending = true
                         hostingAnchorName = anchorName
@@ -1101,10 +1101,11 @@ internal class AndroidARView(
     private fun transformNode(name: String, transform: ArrayList<Double>) {
         val node = arSceneView.scene.findByName(name)
         node?.let {
+            val currentLocalPos = node.localPosition
             val (scale, position, rotation) = deserializeMatrix4s(transform)
             it.localScale = scale
             it.localPosition = position
-            it.localRotation = rotation
+            it.localRotation = currentLocalPos
         }
     }
 
